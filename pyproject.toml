@@ -1,0 +1,15 @@
+[project]
+name = "parcelo"
+version = "0.1.0"
+description = "Dummy parcel-tracking client used to pilot Code-to-Docs"
+requires-python = ">=3.10"
+
+[project.scripts]
+parcelo = "parcelo.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,152 @@
+diff --git a/src/parcelo/cli.py b/src/parcelo/cli.py
+index 1685a22..fcbcf36 100644
+--- a/src/parcelo/cli.py
++++ b/src/parcelo/cli.py
+@@ -3,6 +3,8 @@
+ from __future__ import annotations
+ 
+ import argparse
++import csv
++import io
+ import json
+ import sys
+ 
+@@ -17,8 +19,9 @@ EXIT_USAGE = 64
+ def build_parser() -> argparse.ArgumentParser:
+     parser = argparse.ArgumentParser(prog="parcelo", description="Track and list parcels.")
+     parser.add_argument(
+-        "--format",
+-        choices=("table", "json"),
++        "--output",
++        "-o",
++        choices=("table", "json", "csv"),
+         default="table",
+         help="Output format (default: table).",
+     )
+@@ -37,6 +40,14 @@ def build_parser() -> argparse.ArgumentParser:
+ def render(rows: list[dict], fmt: str) -> str:
+     if fmt == "json":
+         return json.dumps(rows, indent=2)
++    if fmt == "csv":
++        buffer = io.StringIO()
++        writer = csv.DictWriter(
++            buffer, fieldnames=["tracking_id", "status", "destination", "weight_kg"]
++        )
++        writer.writeheader()
++        writer.writerows(rows)
++        return buffer.getvalue().rstrip("\n")
+     header = f"{'TRACKING ID':<12} {'STATUS':<17} {'DESTINATION':<12} {'KG':>5}"
+     lines = [
+         f"{r['tracking_id']:<12} {r['status']:<17} {r['destination']:<12} {r['weight_kg']:>5}"
+@@ -58,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
+     else:
+         rows = client.list_parcels(status=args.status, limit=args.limit)
+ 
+-    print(render(rows, args.format))
++    print(render(rows, args.output))
+     return EXIT_OK
+ 
+ 
+diff --git a/src/parcelo/client.py b/src/parcelo/client.py
+index 4d3eb07..72cf98a 100644
+--- a/src/parcelo/client.py
++++ b/src/parcelo/client.py
+@@ -6,11 +6,13 @@ the code runs without any network access or real service.
+ 
+ from __future__ import annotations
+ 
++import time
+ from dataclasses import asdict, dataclass
+ 
+ from .config import Settings
+ 
+ RATE_LIMIT_PER_MINUTE = 60
++RETRY_BACKOFF_SECONDS = 2
+ VALID_STATUSES = ("created", "in_transit", "out_for_delivery", "delivered")
+ 
+ 
+@@ -39,12 +41,32 @@ class ParceloClient:
+     def __init__(self, settings: Settings) -> None:
+         self.settings = settings
+ 
++    def _with_retries(self, request):
++        """Run a request, retrying on ConnectionError or TimeoutError.
++
++        Waits RETRY_BACKOFF_SECONDS, doubling after each attempt, and gives up
++        after settings.max_retries retries.
++        """
++        delay = RETRY_BACKOFF_SECONDS
++        for attempt in range(self.settings.max_retries + 1):
++            try:
++                return request()
++            except (ConnectionError, TimeoutError):
++                if attempt == self.settings.max_retries:
++                    raise
++                time.sleep(delay)
++                delay *= 2
++
+     def track(self, tracking_id: str) -> dict:
+         """Return a single parcel by tracking ID."""
+-        for parcel in _DUMMY_PARCELS:
+-            if parcel.tracking_id == tracking_id:
+-                return asdict(parcel)
+-        raise ParcelNotFound(tracking_id)
++
++        def request():
++            for parcel in _DUMMY_PARCELS:
++                if parcel.tracking_id == tracking_id:
++                    return asdict(parcel)
++            raise ParcelNotFound(tracking_id)
++
++        return self._with_retries(request)
+ 
+     def list_parcels(self, status: str | None = None, limit: int | None = None) -> list[dict]:
+         """Return parcels, optionally filtered by status.
+diff --git a/src/parcelo/config.py b/src/parcelo/config.py
+index 9252999..92cc06f 100644
+--- a/src/parcelo/config.py
++++ b/src/parcelo/config.py
+@@ -10,9 +10,11 @@ import os
+ from dataclasses import dataclass
+ 
+ DEFAULT_API_URL = "https://api.parcelo.example/v1"
+-DEFAULT_TIMEOUT_SECONDS = 30
++DEFAULT_TIMEOUT_SECONDS = 10
+ DEFAULT_PAGE_SIZE = 25
+ MAX_PAGE_SIZE = 100
++DEFAULT_MAX_RETRIES = 3
++MAX_RETRIES_LIMIT = 10
+ 
+ 
+ @dataclass(frozen=True)
+@@ -23,6 +25,7 @@ class Settings:
+     api_key: str | None
+     timeout_seconds: int
+     page_size: int
++    max_retries: int
+ 
+ 
+ def load_settings(env: dict[str, str] | None = None) -> Settings:
+@@ -32,6 +35,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
+     PARCELO_API_KEY   API key sent in the X-Parcelo-Key header.
+     PARCELO_TIMEOUT   Request timeout in seconds.
+     PARCELO_PAGE_SIZE Number of parcels returned per page (1-100).
++    PARCELO_MAX_RETRIES Times a failed request is retried (0-10). 0 disables retries.
+     """
+     env = dict(os.environ) if env is None else env
+ 
+@@ -39,9 +43,14 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
+     if not 1 <= page_size <= MAX_PAGE_SIZE:
+         raise ValueError(f"PARCELO_PAGE_SIZE must be between 1 and {MAX_PAGE_SIZE}")
+ 
++    max_retries = int(env.get("PARCELO_MAX_RETRIES", DEFAULT_MAX_RETRIES))
++    if not 0 <= max_retries <= MAX_RETRIES_LIMIT:
++        raise ValueError(f"PARCELO_MAX_RETRIES must be between 0 and {MAX_RETRIES_LIMIT}")
++
+     return Settings(
+         api_url=env.get("PARCELO_API_URL", DEFAULT_API_URL).rstrip("/"),
+         api_key=env.get("PARCELO_API_KEY"),
+         timeout_seconds=int(env.get("PARCELO_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)),
+         page_size=page_size,
++        max_retries=max_retries,
+     )

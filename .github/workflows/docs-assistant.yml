@@ -1,0 +1,88 @@
+# Code-to-Docs: AI documentation reviewer
+# https://github.com/redhat-community-ai-tools/code-to-docs
+#
+# Comment on a pull request to run it:
+#   [review-docs]  lists the doc files that the code change affects
+#   [update-docs]  writes the accepted doc updates
+#
+# Based on the workflow in the Code-to-Docs README. Pilot changes:
+#   - docs live in this repo under docs/, so docs-repo-url and docs-subfolder
+#     are set here instead of in secrets, and the built-in GITHUB_TOKEN is enough
+#   - the model endpoint and name are repository variables with free-tier defaults
+#   - Jira and Google Docs inputs ([review-feature]) are left out
+
+name: Documentation Assistant
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write # push doc updates to PR branches
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: docs-assistant-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  docs-assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Only people with write access can spend model quota.
+    if: |
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      (contains(github.event.comment.body, '[review-docs]') ||
+       contains(github.event.comment.body, '[update-docs]'))
+    steps:
+      - name: Get PR information
+        id: pr_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER)
+
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
+          HEAD_REPO=$(echo "$PR_DATA" | jq -r '.head.repo.full_name')
+          BASE_REF=$(echo "$PR_DATA" | jq -r '.base.ref')
+
+          echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "head_repo=$HEAD_REPO" >> $GITHUB_OUTPUT
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR code
+        # Kept at v4 to match the Code-to-Docs README: later versions store git
+        # credentials differently, which the next step and the action rely on.
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr_info.outputs.head_repo || github.repository }}
+          ref: ${{ steps.pr_info.outputs.head_ref || github.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebind origin to main repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git remote set-url origin "https://github.com/${{ github.repository }}.git"
+          git config --local http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(echo -n "x-access-token:${GH_TOKEN}" | base64 -w 0)"
+
+      - name: Documentation Assistant
+        uses: redhat-community-ai-tools/code-to-docs@v1
+        with:
+          model-api-base: ${{ vars.MODEL_API_BASE || 'https://generativelanguage.googleapis.com/v1beta/openai/' }}
+          model-api-key: ${{ secrets.MODEL_API_KEY }}
+          model-name: ${{ vars.MODEL_NAME || 'gemini-3.6-flash' }}
+          docs-repo-url: ${{ github.server_url }}/${{ github.repository }}
+          docs-subfolder: docs
+          docs-base-branch: ${{ github.event.repository.default_branch }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-number: ${{ github.event.issue.number }}
+          pr-base: origin/${{ steps.pr_info.outputs.base_ref || 'main' }}
+          pr-head-sha: ${{ steps.pr_info.outputs.head_ref }}
+          comment-body: ${{ github.event.comment.body }}
+          style-config-path: '.code-to-docs/style.md'
