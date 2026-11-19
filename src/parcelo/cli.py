@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import sys
 
@@ -17,8 +19,9 @@ EXIT_USAGE = 64
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="parcelo", description="Track and list parcels.")
     parser.add_argument(
-        "--format",
-        choices=("table", "json"),
+        "--output",
+        "-o",
+        choices=("table", "json", "csv"),
         default="table",
         help="Output format (default: table).",
     )
@@ -37,6 +40,14 @@ def build_parser() -> argparse.ArgumentParser:
 def render(rows: list[dict], fmt: str) -> str:
     if fmt == "json":
         return json.dumps(rows, indent=2)
+    if fmt == "csv":
+        buffer = io.StringIO()
+        writer = csv.DictWriter(
+            buffer, fieldnames=["tracking_id", "status", "destination", "weight_kg"]
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+        return buffer.getvalue().rstrip("\n")
     header = f"{'TRACKING ID':<12} {'STATUS':<17} {'DESTINATION':<12} {'KG':>5}"
     lines = [
         f"{r['tracking_id']:<12} {r['status']:<17} {r['destination']:<12} {r['weight_kg']:>5}"
@@ -58,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         rows = client.list_parcels(status=args.status, limit=args.limit)
 
-    print(render(rows, args.format))
+    print(render(rows, args.output))
     return EXIT_OK
 
 
