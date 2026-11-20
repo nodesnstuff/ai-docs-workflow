@@ -23,15 +23,15 @@ List every parcel, or filter by status:
 parcelo list --status in_transit
 ```
 
-## Get JSON output
+## Get JSON or CSV output
 
-Add `--format json` before the subcommand to get machine-readable output:
+Add `--output json` or `--output csv` before the subcommand to get machine-readable output:
 
 ```bash
-parcelo --format json list --limit 2
+parcelo --output json list --limit 2
 ```
 
-Parcelo supports two output formats: `table` (the default) and `json`.
+Parcelo supports three output formats: `table` (the default), `json`, and `csv`. You can also use `-o` as a short flag for `--output`.
 
 ## Next steps
 
