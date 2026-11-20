@@ -6,11 +6,13 @@ the code runs without any network access or real service.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass
 
 from .config import Settings
 
 RATE_LIMIT_PER_MINUTE = 60
+RETRY_BACKOFF_SECONDS = 2
 VALID_STATUSES = ("created", "in_transit", "out_for_delivery", "delivered")
 
 
@@ -39,12 +41,32 @@ class ParceloClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
+    def _with_retries(self, request):
+        """Run a request, retrying on ConnectionError or TimeoutError.
+
+        Waits RETRY_BACKOFF_SECONDS, doubling after each attempt, and gives up
+        after settings.max_retries retries.
+        """
+        delay = RETRY_BACKOFF_SECONDS
+        for attempt in range(self.settings.max_retries + 1):
+            try:
+                return request()
+            except (ConnectionError, TimeoutError):
+                if attempt == self.settings.max_retries:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+
     def track(self, tracking_id: str) -> dict:
         """Return a single parcel by tracking ID."""
-        for parcel in _DUMMY_PARCELS:
-            if parcel.tracking_id == tracking_id:
-                return asdict(parcel)
-        raise ParcelNotFound(tracking_id)
+
+        def request():
+            for parcel in _DUMMY_PARCELS:
+                if parcel.tracking_id == tracking_id:
+                    return asdict(parcel)
+            raise ParcelNotFound(tracking_id)
+
+        return self._with_retries(request)
 
     def list_parcels(self, status: str | None = None, limit: int | None = None) -> list[dict]:
         """Return parcels, optionally filtered by status.
