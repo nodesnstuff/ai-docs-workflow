@@ -8,7 +8,28 @@
         "guides/troubleshooting.md": "a42efa081faea37e2740efbd16e8c72368021bb1619d5f79ac1a4ddff90f694f",
         "guides/webhooks.md": "edc0879a848c17274c2152e488c227a209ccca11b6151ad20aeff1c958118ebb"
       }
+    },
+    "_root": {
+      "built": "2026-11-20T10:39:49.986392",
+      "doc_hashes": {
+        "index.md": "e1dd2f5d934ea49c0d38d8763306f9136d429afca6180a72ca96d550cd503682"
+      }
+    },
+    "getting-started": {
+      "built": "2026-11-20T10:40:13.848196",
+      "doc_hashes": {
+        "getting-started/install.md": "b889666d8c24313d0967e8aa642cc929ba13723ef4cabbc15008ba36195cce90",
+        "getting-started/quickstart.md": "22cdddec6ea62df117fd1355f784d1f9bc0cf9130d5a2c2ba31f48f9e1951a0c"
+      }
+    },
+    "reference": {
+      "built": "2026-11-20T10:40:48.741503",
+      "doc_hashes": {
+        "reference/api-limits.md": "a6c1a869cd61e572405089d0fab5b60baf1b2e45bffde9b3ab4f372664d176cf",
+        "reference/cli.md": "f0f478db17802df8c996ba59bf07aad200a4274c72e9ce1aab33ee072985bdec",
+        "reference/configuration.md": "88bcc34240fa5535f6dbf94cd9354826085e691cde3f2ccf5aeee2f6ebf62254"
+      }
     }
   },
-  "updated": "2026-11-19T10:23:04.144878"
+  "updated": "2026-11-20T10:40:48.741594"
 }
